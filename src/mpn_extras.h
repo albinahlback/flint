@@ -821,6 +821,11 @@ mp_limb_pair_t flint_mpn_sqrhigh_normalised(mp_ptr rp, mp_srcptr xp, mp_size_t n
 
 /* division ******************************************************************/
 
+void nn_preinv_1(mp_ptr, mp_srcptr);
+void nn_preinv_2(mp_ptr, mp_srcptr);
+void nn_preinv_4(mp_ptr, mp_srcptr);
+void nn_preinv_8(mp_ptr, mp_srcptr);
+
 #if FLINT_HAVE_NATIVE_mpn_modexact_1_odd
 # define mpn_modexact_1_odd __gmpn_modexact_1_odd
 mp_limb_t mpn_modexact_1_odd(mp_srcptr, mp_size_t, mp_limb_t);
