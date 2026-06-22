@@ -1,0 +1,905 @@
+\documentclass[12pt,oneside,draft]{scrartcl}
+
+\input{packages}
+\input{settingsmath}
+\input{settingstext}
+% \input{settingscode}
+\input{shortcuts}
+% \bibliography{references.bib}
+
+\title{Fast Newton Division}
+\author{Albin Ahlbäck\footnotemark[1]}
+\email{ahlback@lix.polytechnique.fr}
+
+\titleHeader{}
+\authorHeader{Albin Ahlbäck}
+
+\begin{document}
+%%fakesection[Title]
+\thispagestyle{scrplain}%
+\maketitle
+
+%%fakesection[Abstract]
+% {\noindent\bfseries Abstract:}\hspace{\medskipamount}%
+
+% {\noindent\bfseries Keywords:\hspace{\medskipamount}%
+% }\vspace{-30pt}%
+
+%%fakesection[Table of Content]
+\def\contentsname{}%
+\tableofcontents
+\vspace*{1.5em}
+
+%%fakesection[Introduction]
+% \Needspace*{40pt}
+% \phantomsection
+% \addcontentsline{toc}{section}{Introduction}%
+% \markright{Introduction}%
+
+\section{Precomputed reciprocal}
+
+Let~$B = 2^{\ell}$ be a base.  For integers~$d \in [B / 2, B)$, we denote the precomputed reciprocal of~$d$ as
+\begin{gather}
+  v
+\;=\;
+  \lfloor B^{2} / d \rfloor - B - 1
+\;\in\;
+  [0, B)
+\tx{.}
+\label{eq:reciprocal}
+\end{gather}
+
+Typically, one would use~$v$ to produce the quotient~$\lfloor m / d \rfloor$ and remainder~$m \bmod d$.  This algorithm is shown in Algorithm~\ref{alg:div}.
+\begin{algorithm}
+\caption{Division of~$m$ by~$d$ with precomputed reciprocal~$v$}
+\label{alg:div}
+\begin{algorithmic}[1]
+\Require $d \in [B / 2, B)$,\; $v = \lfloor B^{2} / d \rfloor - B - 1$,\; $m \in [0, d B)$
+\Ensure $(q, r)$ with $q = \lfloor m / d \rfloor$ and $r = m \bmod d$
+\State $q \gets \bigl\lfloor m (v + B + 1) / B^{2} \bigr\rfloor$
+\State $r \gets m - q d$
+\If{$r \ge d$}
+  \State $q \gets q + 1$
+  \State $r \gets r - d$
+\EndIf
+\State \Return $(q, r)$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{proposition}
+\label{prop:div_correct}
+Algorithm~\ref{alg:div} returns~$(\lfloor m / d \rfloor, m \bmod d)$.
+\end{proposition}
+
+To prove this, we use the following lemma.
+
+\begin{lemma}
+\label{lemma:estimates}
+Let
+\begin{gather}
+  q
+\;=\;
+  \Bigl\lfloor \frac{m (v + B + 1)}{B^{2}} \Bigr\rfloor
+\tx{.}
+\end{gather}
+Then~$q \le \lfloor m / d \rfloor \le q + 1$.
+\end{lemma}
+\begin{proof}
+Consider the difference
+\begin{gather*}
+  \delta
+\;=\;
+  \frac{m}{d} - \frac{m (v + B + 1)}{B^{2}}
+\;=\;
+  \frac{m (B^{2} / d - \lfloor B^{2} / d \rfloor)}{B^{2}}
+\tx{.}
+\end{gather*}
+If~$d$ divides~$B^{2}$ then~$\delta = 0$, else~$\delta \in (0, 1)$, and so the proposition follows.
+\end{proof}
+
+\begin{proof}[Proof of Proposition~\ref{prop:div_correct}]
+At line 2 we have~$m = q d + r$.  Lemma~\ref{lemma:estimates} reads~$q \le \lfloor m / d \rfloor \le q + 1$, where the lower bound gives~$r \ge m - \lfloor m / d \rfloor d \ge 0$, and the upper bound gives~$r \le m - (\lfloor m / d \rfloor - 1) d < 2 d$.  Hence~$r \in [0, 2 d)$.
+
+If~$r < d$, we are done.  Else, $d \le r < 2 d$ and the correction~$m = (q + 1) d + (r - d)$ yields~$0 \le r - d < d$ with~$q + 1 = \lfloor m / d \rfloor$ and~$r - d = m \bmod d$.
+\end{proof}
+
+\section{High multiplication}
+\newcommand{\mulhi}{\operatorname{mulhi}}%
+\newcommand{\rem}{\operatorname{rem}}%
+
+In order to optimize the algorithm, we ought to use high multiplication instead of full multiplication.
+
+Let~$a = \sum_{i < m} a_{i} \beta^{i}$ and~$b = \sum_{i < n} b_{i} \beta^{i}$ be non-negative integers.  Then we define high multiplication as
+\begin{gather}
+  \mulhi_{k}(a, b)
+\;=\;
+  \sum_{i + j \ge k} a_{i} b_{j} \beta^{i + j}
+  +
+  \sum_{i + j = k - 1} \Bigl\lfloor \frac{a_{i} b_{j}}{\beta} \Bigr\rfloor \beta^{i + j + 1}
+\tx{,}
+\end{gather}
+with difference
+\begin{gather*}
+  a b - \mulhi_{k}(a, b)
+\;=\;
+  \sum_{i + j < k - 1} a_{i} b_{j} \beta^{i + j}
+  +
+  \sum_{i + j = k - 1} \rem(a_{i} b_{j}, \beta) \beta^{i + j}
+\tx{,}
+\end{gather*}
+where~$0 \le \rem(x, y) < y$ is the remainder of the division of~$x$ by~$y$.
+
+\begin{proposition}
+\label{prop:mulhi_bound}
+High multiplication is bounded by
+\begin{gather}
+  \mulhi_{k}(a, b)
+\;\le\;
+  a b
+\;\le\;
+  \mulhi_{k}(a, b) + M_{k}
+\tx{,}
+\end{gather}
+where~$M_{k} = (2 k - 1) \beta^{k} - 2 k \beta^{k - 1} + 1$.
+\end{proposition}
+\begin{proof}
+Lower bound is immediate, and for the upper bound we have
+\begin{align*}
+  a b - \mulhi_{k}(a, b)
+\;\le{}&\;
+  \sum_{i + j < k - 1} (\beta - 1)^{2} \beta^{i + j}
+  +
+  \sum_{i + j = k - 1} (\beta - 1) \beta^{i + j}
+\\
+={}&\;
+  \sum_{r = 0}^{k - 2} (r + 1) (\beta - 1)^{2} \beta^{r}
+  +
+  k (\beta - 1) \beta^{k - 1}
+\\
+={}&\;
+  (2 k - 1) \beta^{k} - 2 k \beta^{k - 1} + 1
+\tx{.}
+\end{align*}
+\end{proof}
+
+\iffalse
+\section{Ceil bound}
+
+\begin{proposition}
+\label{prop:ceil_lower_bound}
+Let~$a, b, c \in \ZZ_{> 0}$.  Then
+\begin{gather}
+  \Bigl\lceil \frac{a}{b} \Bigr\rceil
+\;\ge\;
+  \frac{c}{b} \Bigl\lceil \frac{a}{c} \Bigr\rceil
+  -
+  \frac{c - \gcd(b, c)}{b}
+\tx{.}
+\end{gather}
+\end{proposition}
+\begin{proof}
+Write~$d = \gcd(b, c)$, $s = c \lceil a / c \rceil - a$ and~$t = b \lceil a / b \rceil - a$ where~$0 \le s \le c - 1$ and~$0 \le t \le b - 1$.  The claim is then equivalent to~$t \ge s - (c - d)$.  If~$s \le c - d$ we are done since~$t \ge 0$.
+
+Else~$1 \le s - (c - d) \le d - 1$.  Note that~$s \equiv t \equiv -a \pmod{d}$.  Because~$c - d \equiv 0 \pmod{d}$ we have~$s - (c - d) \equiv t \pmod{d}$ while lying in~$[1, d - 1]$.  It is therefore a reduction modulo~$d$, so~$t \ge s - (c - d)$.
+\end{proof}
+
+\begin{proposition}
+\label{prop:ceil_upper_bound}
+Let~$a, b, c \in \ZZ_{> 0}$.  Then
+\begin{gather}
+  \Bigl\lceil \frac{a}{b} \Bigr\rceil
+\;\le\;
+  \frac{c}{b} \Bigl\lceil \frac{a}{c} \Bigr\rceil
+  +
+  \frac{b - \gcd(b, c)}{b}
+\tx{.}
+\end{gather}
+\end{proposition}
+\begin{proof}
+With~$d = \gcd(b, c)$, $s = c \lceil a / c \rceil - a$ and~$t = b \lceil a / b \rceil - a$, the claim is equivalent to~$t - s \le b - d$.  Since~$s \equiv t \equiv -a \pmod{d}$, the difference~$t - s$ is a multiple of~$d$; as~$t - s \le t \le b - 1 < b$ and~$d \ b$, the largest multiple of~$d$ below~$b$ is~$b - d$, so~$t - s \le b - d$.
+\end{proof}
+\fi
+
+\section{Algorithm for precomputed reciprocal}
+
+We use Newton-Raphson method to compute the precomputed reciprocal.  Throughout this section, let~$d_{n} \approx d / 2^{f_{n}}$ denote an integer approximation of~$d$ and let
+\begin{gather}
+  e_{n}
+\;=\;
+  2^{p_{n}} - x_{n} d_{n}
+\end{gather}
+denote the error of the~$n$th iterate,where~$f_{n}$ and~$p_{n}$ are chosen appropriately based on the precision of the iteration.  For performant implementations, we will require the error term~$e_{n}$ to be non-negative to avoid sign changes.
+
+The iteration we define as
+\begin{gather}
+  x_{n + 1}
+\;=\;
+  2^{a_{n}} x_{n} + x_{n} \frac{2^{b_{n}} - x_{n} d_{n + 1}}{2^{b_{n} - a_{n}}}
+\tx{,}
+\label{eq:newton}
+\end{gather}
+with exponents
+\begin{gather}
+  a_{n}
+\;=\;
+  p_{n + 1} - p_{n} - f_{n} + f_{n + 1}
+\quad\tx{and}\quad
+  b_{n}
+\;=\;
+  p_{n} + f_{n} - f_{n + 1}
+\tx{.}
+\label{eq:newton_exp}
+\end{gather}
+This is the reciprocal Newton step in scaled integers where~$a_{n}$ scales the reciprocal to the new precision.  As the precision approximately doubles each iteration, $p_{n + 1} \approx 2 p_{n}$ and~$f_{n + 1} \approx f_{n} / 2$.
+
+\subsection{Optimizing the algorithm}
+
+The idea of the optimization will be to use the iteration
+\begin{gather}
+  x_{n + 1}
+\;=\;
+  2^{a_{n}} x_{n}
+  +
+  \biggl\lfloor \frac{\mulhi_{k_{n}}(x_{n}, 2^{b_{n}} - x_{n} d_{n + 1})}{2^{b_{n} - a_{n}}} \biggr\rfloor
+\tx{,}
+\end{gather}
+where~$k_{n}$ is appropriately chosen to minimize the amount of computations performed while not loosing too much precision.
+
+\iffalse
+From Proposition~\ref{prop:ceil_lower_bound} and Proposition~\ref{prop:ceil_upper_bound}, we derive
+\begin{gather}
+  2^{f_{n} - f_{n + 1}} d_{n} - 2^{f_{n} - f_{n + 1}} + 1
+\;\le\;
+  d_{n + 1}
+\;\le\;
+  2^{f_{n} - f_{n + 1}} d_{n}
+\tx{.}
+\label{eq:dn1}
+\end{gather}
+
+\begin{proposition}
+\label{prop:residual_bound}
+The residual of the Newton step satisfies
+\begin{gather}
+  2^{f_{n} - f_{n + 1}} e_{n}
+\;\le\;
+  2^{b_{n}} - x_{n} d_{n + 1}
+\;\le\;
+  2^{f_{n} - f_{n + 1}} e_{n} + (2^{f_{n} - f_{n + 1}} - 1) x_{n}
+\tx{.}
+\end{gather}
+\end{proposition}
+\begin{proof}
+The proposition follows from~\eqref{eq:dn1}.  For the lower bound,
+\begin{gather*}
+  2^{b_{n}} - x_{n} d_{n + 1}
+\;\ge\;
+  2^{b_{n}} - 2^{f_{n} - f_{n + 1}} x_{n} d_{n}
+\;=\;
+  2^{f_{n} - f_{n + 1}} (2^{p_{n}} - x_{n} d_{n})
+\tx{,}
+\end{gather*}
+and for the upper bound
+\begin{gather*}
+  2^{b_{n}} - x_{n} d_{n + 1}
+\;\le\;
+  2^{b_{n}} - x_{n} (2^{f_{n} - f_{n + 1}} d_{n} - 2^{f_{n} - f_{n + 1}} + 1)
+\tx{.}
+\end{gather*}
+\end{proof}
+
+\begin{proposition}
+\label{prop:error_recursion}
+Write
+\begin{gather*}
+  h
+\;=\;
+  f_{n} - f_{n + 1}
+\tx{,}\qquad
+  g
+\;=\;
+  b_{n} - a_{n}
+\tx{,}\qquad
+  C
+\;=\;
+  (2 k_{n} - 1) \beta^{k_{n}} - 2 k_{n} \beta^{k_{n} - 1} + 1
+\tx{,}
+\end{gather*}
+and assume~$e_{n} \ge 0$, $g \ge 0$, and that~$\beta$ is a power of two.  Then the optimized iteration satisfies
+\begin{gather}
+  0
+\;\le\;
+  e_{n + 1}
+\;\le\;
+  \frac{\bigl(2^{h} e_{n} + (2^{h} - 1) x_{n}\bigr)^{2} + \bigl(C + \max(0, 2^{g} - \beta^{k_{n}})\bigr) d_{n + 1}}{2^{g}}
+\tx{.}
+\label{eq:error_recursion}
+\end{gather}
+\end{proposition}
+\begin{proof}
+Let~$R = 2^{b_{n}} - x_{n} d_{n + 1}$ and $M = \mulhi_{k_{n}}(x_{n}, R)$, and write
+\begin{gather*}
+  \Delta
+\;=\;
+  x_{n} R - 2^{g} \lfloor M / 2^{g} \rfloor
+\;=\;
+  (x_{n} R - M) + \rem(M, 2^{g})
+\tx{,}
+\end{gather*}
+Proposition~\ref{prop:mulhi_bound} gives~$0 \le x_{n} R - M \le C$.  Every term of~$\mulhi_{k_{n}}$ carries a factor~$\beta^{k_{n}}$, so~$M$ is a multiple of~$\beta^{k_{n}}$; as~$\beta$ is a power of two, $\rem(M, 2^{g})$ is a multiple of~$\min(\beta^{k_{n}}, 2^{g})$, whence~$\rem(M, 2^{g}) \le \max(0, 2^{g} - \beta^{k_{n}})$.  Therefore~$0 \le \Delta \le C + \max(0, 2^{g} - \beta^{k_{n}})$.
+
+The iterate is~$x_{n + 1} = 2^{a_{n}} x_{n} + (x_{n} R - \Delta) / 2^{g}$.  Using~$x_{n} d_{n + 1} = 2^{b_{n}} - R$ together with~$a_{n} + b_{n} = p_{n + 1}$ and~$2^{b_{n}} / 2^{g} = 2^{a_{n}}$,
+\begin{gather*}
+  x_{n + 1} d_{n + 1}
+\;=\;
+  2^{a_{n}} (2^{b_{n}} - R) + \frac{(2^{b_{n}} - R) R - \Delta d_{n + 1}}{2^{g}}
+\;=\;
+  2^{p_{n + 1}} - \frac{R^{2} + \Delta d_{n + 1}}{2^{g}}
+\tx{,}
+\end{gather*}
+and therefore
+\begin{gather}
+  e_{n + 1}
+\;=\;
+  2^{p_{n + 1}} - x_{n + 1} d_{n + 1}
+\;=\;
+  \frac{R^{2} + \Delta d_{n + 1}}{2^{g}}
+\tx{.}
+\label{eq:err_exact}
+\end{gather}
+The lower bound is immediate from~$R \ge 0$ and~$\Delta \ge 0$.  For the upper bound, \eqref{eq:dn1} gives~$d_{n + 1} \ge 2^{h} d_{n} - 2^{h} + 1$, hence using~$b_{n} = p_{n} + h$ yields
+\begin{gather*}
+  0
+\;\le\;
+  R
+\;\le\;
+  2^{b_{n}} - x_{n} (2^{h} d_{n} - 2^{h} + 1)
+\;=\;
+  2^{h} e_{n} + (2^{h} - 1) x_{n}
+\tx{.}
+\end{gather*}
+Substituting this bound and the bound of~$\Delta$ into~\eqref{eq:err_exact} yields the upper bound.
+\end{proof}
+\fi
+
+\begin{proposition}
+\label{prop:final_step}
+Let\/~$x \in \{v - 1, v\}$.  Then
+\begin{gather}
+  v
+\;=\;
+  x - \Bigl\lfloor \frac{(x + B + 2) d - 1}{B^{2}} \Bigr\rfloor + 1
+\tx{.}
+\label{eq:prop:final_step}
+\end{gather}
+\end{proposition}
+\begin{proof}
+Write~$x = v - \delta$ for~$\delta \in \{0, 1\}$.  Then it suffice to prove that
+\begin{gather*}
+  \Bigl\lfloor \frac{(x + B + 2) d - 1}{B^{2}} \Bigr\rfloor
+\;=\;
+  1 - \delta
+\tx{.}
+\end{gather*}
+
+Note that~$x + B + 2 = B^{2} / d + 1 - \delta - \epsilon$, where~$0 \le \epsilon \le (d - 1) / d$ is rounding error for the floor function~$\lfloor B^{2} / d \rfloor$, and so
+\begin{gather*}
+  \frac{(x + B + 2) d - 1}{B^{2}}
+\;=\;
+  1 - \frac{(\epsilon + \delta - 1) d + 1}{B^{2}}
+\tx{.}
+\end{gather*}
+For~$\delta = 0$, we find that
+\begin{gather*}
+  1
+\;\le\;
+  1 - \frac{(\epsilon - 1) d + 1}{B^{2}}
+\;\le\;
+  1 + \frac{d - 1}{B^{2}}
+\;<\;
+  2
+\tx{,}
+\end{gather*}
+which settles this case.  And for~$\delta = 1$, we have
+\begin{gather*}
+  0
+\;<\;
+  1 - \frac{d - 2}{B^{2}}
+\;\le\;
+  1 - \frac{\epsilon d + 1}{B^{2}}
+\;\le\;
+  1 - \frac{1}{B^{2}}
+\;<\;
+  1
+\tx{,}
+\end{gather*}
+which completes the proof.
+\end{proof}
+
+\subsection{64-bit reciprocal}
+
+\begin{algorithm}
+\caption{Precomputed reciprocal~$v$ for~$B = 2^{64}$ with 64-bit word size and 63-bit initial estimate.}
+\label{alg:reciprocal64}
+\begin{algorithmic}[1]
+\Require $B = 2^{64}$, $d \in [B / 2, B)$
+\Ensure $x_{2} = \lfloor B^{2} / d \rfloor - B - 1$
+
+\State $d_{0} \gets \lceil d / 2 \rceil$
+\State $x_{0} \gets \lfloor 2^{125} / d_{0} \rfloor$
+
+\State $x_{1} \gets 2^{2} x_{0} + \lfloor x_{0} ( 2^{126} - x_{0} d) / 2^{124} \rfloor - 2^{64} - 1$
+
+\State $x_{2} \gets x_{1} - \bigl\lfloor \bigl( (x_{1} + 2^{64} + 2) d - 1 \bigr) / 2^{128} \bigr\rfloor + 1$
+
+\State \Return $x_{2}$
+\end{algorithmic}
+\end{algorithm}
+
+We will not prove the correctness of this algorithm, but rather point to the subsequent sections where this is proved.
+
+\begin{proposition}
+\label{proposition:variable64_bounds}
+In Algorithm~\ref{alg:reciprocal64}, we have the following bounds:
+\begin{gather*}
+  2^{62}
+\;\le\;
+  x_{0}
+\;\le\;
+  2^{63}
+\quad\tx{and}\quad
+  0
+\;\le\;
+  x_{1}
+\;<\;
+  2^{64}
+\tx{.}
+\end{gather*}
+\end{proposition}
+
+\subsection{128-bit reciprocal}
+
+\begin{algorithm}
+\caption{Precomputed reciprocal~$v$ for~$B = 2^{128}$ with 64-bit word size and 63-bit initial estimate.}
+\label{alg:reciprocal128}
+\begin{algorithmic}[1]
+\Require $B = 2^{128}$, $d \in [B / 2, B)$
+\Ensure $x_{3} = \lfloor B^{2} / d \rfloor - B - 1$
+
+\State $d_{0} \gets \lfloor d / 2^{65} \rfloor + 1$
+\State $x_{0} \gets \lfloor 2^{125} / d_{0} \rfloor$
+
+\State $d_{1} \gets \lceil d / 2 \rceil$
+\State $x_{1} \gets 2^{64} x_{0} + \lfloor \mulhi_{2}(x_{0}, 2^{189} - x_{0} d_{1}) / 2^{125} \rfloor$
+
+\State $x_{2} \gets 2^{2} x_{1} + \lfloor \mulhi_{3}(x_{1}, 2^{254} - x_{1} d) / 2^{252} \rfloor - 2^{128} - 1$
+
+\State $x_{3} \gets x_{2} - \bigl\lfloor \bigl( (x_{2} + 2^{128} + 2) d - 1 \bigr) / 2^{256} \bigr\rfloor + 1$
+
+\State \Return $x_{3}$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{proposition}
+\label{prop:reciprocal128_correct}
+Algorithm~\ref{alg:reciprocal128} is correct.
+\end{proposition}
+\begin{proof}
+We will prove that
+\begin{alignat}{2}
+  e_{0}
+\;={}&\;
+  2^{125} - x_{0} d_{0}
+\;&&{}\in\;
+  [0, 2^{63})
+\tx{,}
+\\
+  e_{1}
+\;={}&\;
+  2^{253} - x_{1} d_{1}
+\;&&{}\in\;
+  [0, 2^{133})
+\tx{,}
+\\
+  e_{2}
+\;={}&\;
+  2^{256} - (x_{2} + 2^{128} + 1) d
+\;&&{}\in\;
+  [0, 2 d)
+\tx{,}
+\end{alignat}
+and thus~$x_{2} \in \{v - 1, v\}$, so Proposition~\ref{prop:final_step} gives us that the returned value is indeed~$v$.
+
+For~$e_{0}$, the lower bound is obvious.  For the upper bound, note that~$d_{0} \le 2^{63}$ and~$x_{0} > 2^{125} / d_{0} - 1$, thus
+\begin{gather*}
+  e_{0}
+\;<\;
+  2^{125} - \Bigl( \frac{2^{125}}{d_{0}} - 1 \Bigr) d_{0}
+\;=\;
+  2^{63}
+\tx{.}
+\end{gather*}
+
+For~$e_{1}$, note that
+\begin{gather}
+  \Bigl\lfloor \frac{\mulhi_{2}(x_{0}, 2^{189} - x_{0} d_{1})}{2^{125}} \Bigr\rfloor
+\;=\;
+  \frac{x_{0} (2^{189} - x_{0} d_{1})}{2^{125}} - 2^{-125} M_{2} - \delta_{0}
+\end{gather}
+where~$\delta_{0} \in [0, 1)$ is floor function error and~$M_{2}$ is the high multiplication error (see Proposition~\ref{prop:mulhi_bound}).  Thus
+\begin{align}
+  e_{1}
+\;={}&\;
+  2^{253} - \Bigl( 2^{64} x_{0} + \frac{x_{0} (2^{189} - x_{0} d_{1})}{2^{125}} - 2^{-125} M_{2} - \delta_{0} \Bigr) d_{1}
+  \nonumber
+\\
+={}&\;
+  2^{253} - 2 \cdot 2^{64} x_{0} d_{1} + \frac{x_{0}^{2} d_{1}^{2}}{2^{125}} + (2^{-125} M_{2} + \delta_{0}) d_{1}
+  \nonumber
+\\
+={}&\;
+  \frac{(2^{189} - x_{0} d_{1})^{2}}{2^{125}} + (2^{-125} M_{2} + \delta_{0}) d_{1}
+\label{eq:prop:e2_128_nonnegative}
+\\
+\le{}&\;
+  \frac{(2^{189} - 2^{64} x_{0} (d_0 - 1))^{2}}{2^{125}} + (2^{-125} M_{2} + \delta_{0}) d_{1}
+  \nonumber
+\\
+={}&\;
+  2^{3} (e_{0} + x_{0})^{2} + (2^{-125} M_{2} + \delta_{0}) d_{1}
+  \nonumber
+\\
+<{}&\;
+  2^{133}
+  \nonumber
+\end{align}
+where the last line uses that~$x_{0} \le 2^{125} / d_{0} < 2^{63}$ and~$d_{1} \le 2^{127}$.  Non-negativity of~$e_{1}$ is immediate from~\eqref{eq:prop:e2_128_nonnegative}.
+
+For~$e_{2}$, similar to the previous iteration, we have
+\begin{align*}
+  e_{2}
+\;={}&\;
+  2^{256} - \Bigl( 2^{2} x_{1} + \frac{x_{1} (2^{254} - x_{1} d)}{2^{252}} - 2^{-252} M_{3} - \delta_{1} \Bigr) d
+\\
+={}&\;
+  2^{256} - 2 \cdot 2^{2} x_{1} d + \frac{x_{1}^{2} d^{2}}{2^{252}} + (2^{-252} M_{3} + \delta_{1}) d
+\\
+={}&\;
+  \frac{(2^{254} - x_{1} d)^{2}}{2^{252}} + (2^{-252} M_{3} + \delta_{1}) d
+\\
+<{}&\;
+\frac{(2 e_{1} + x_{1})^{2}}{2^{252}} + (2^{-60} \cdot 5 + 1) d
+\\
+<{}&\;
+  2 d
+\tx{,}
+\end{align*}
+where~$\delta_{1} \in [0, 1)$ and where we used that~$d \ge 2 d_{1} - 1$ and~$x_{1} \le 2^{253} / d_{1} \le 2^{127}$.  This completes the proof.
+\end{proof}
+
+\begin{corollary}
+\label{corr:variable128_bounds}
+In Algorithm~\ref{alg:reciprocal128}, we have the following bounds:
+\begin{gather*}
+  2^{62}
+\;\le\;
+  x_{0}
+\;<\;
+  2^{63}
+\tx{,}\qquad
+  0
+\;\le\;
+  x_{1}
+\;\le\;
+  2^{127}
+\tx{,}\qquad
+  0
+\;\le\;
+  x_{2}
+\;<\;
+  2^{128}
+\tx{,}
+\\
+  0
+\;<\;
+  2^{189} - x_{0} d_{1}
+\;<\;
+  2^{128}
+\tx{,}\qquad
+  0
+\;\le\;
+  2^{254} - x_{1} d
+\;\le\;
+  2^{135}
+\tx{.}
+\end{gather*}
+\end{corollary}
+\begin{proof}
+The bound for~$x_{0}$ is trivial, and the bound~$x_{1} \le 2^{127}$ follows from the bounds of~$e_{1} = 2^{253} - x_{1} d_{1}$ and~$d_{1}$.
+
+For~$x_{2}$ we use that~$e_{2} = 2^{256} - (x_{2} + 2^{128} + 1) d \in [0, 2 d)$ to obtain that
+\begin{gather*}
+  2^{256} / d - 2^{128} - 3
+\;<\;
+  x_{2}
+\;\le\;
+  2^{256} / d - 2^{128} - 1
+\;\le\;
+  2^{128} - 1
+\tx{.}
+\end{gather*}
+The lower bound remain non-negative for all~$d \le 2^{128} - 3$.  For the two values where~$d > 2^{128} - 3$, we evaluate~$x_{2}$ and indeed see that it is non-negative.
+
+For the two remaining bounds, note that~$2^{64} (d_{0} - 1) \le d_{1} < 2^{64} d_{0}$ and~$2 d_{1} - 1 \le d \le 2 d_{1}$, thus
+\begin{gather*}
+  0
+\;\le\;
+  2^{64} e_{0}
+\;<\;
+  2^{189} - x_{0} d_{1}
+\;\le\;
+  2^{64} e_{0} + 2^{64} x_{0}
+\;<\;
+  2^{128}
+\tx{,}\makebox[0pt][l]{\quad\tx{and}}
+\\
+  0
+\;\le\;
+  2 e_{1}
+\;\le\;
+  2^{254} - x_{1} d
+\;\le\;
+  2 e_{1} + x_{1}
+\;<\;
+  2^{135}
+\tx{,}
+\end{gather*}
+which completes the proof.
+\end{proof}
+
+\subsection{256-bit reciprocal}
+
+\begin{algorithm}
+\caption{Precomputed reciprocal~$v$ for~$B = 2^{256}$ with 64-bit word size and 63-bit initial estimate.}
+\label{alg:reciprocal256}
+\begin{algorithmic}[1]
+\Require $B = 2^{256}$, $d \in [B / 2, B)$
+\Ensure $x_{4} = \lfloor B^{2} / d \rfloor - B - 1$
+
+\State $d_{0} \gets \lfloor d / 2^{193} \rfloor + 1$
+\State $x_{0} \gets \lfloor 2^{125} / d_{0} \rfloor$
+
+\State $d_{1} \gets \lfloor d / 2^{129} \rfloor + 1$
+\State $x_{1} \gets 2^{58} x_{0} + \lfloor \mulhi_{2}(x_{0}, 2^{189} - x_{0} d_{1}) / 2^{131} \rfloor$
+
+\State $d_{2} \gets \lceil d / 2 \rceil$
+\State $x_{2} \gets 2^{134} x_{1} + \lfloor \mulhi_{4}(x_{1}, 2^{375} - x_{1} d_{2}) / 2^{241} \rfloor$
+
+\State $x_{3} \gets 2^{2} x_{2} + \lfloor \mulhi_{7}(x_{2}, 2^{510} - x_{2} d) / 2^{508} \rfloor - 2^{256} - 1$
+
+\State $x_{4} \gets x_{3} - \bigl\lfloor \bigl( (x_{3} + 2^{256} + 2) d - 1 \bigr) / 2^{512} \bigr\rfloor + 1$
+
+\State \Return $x_{4}$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{proposition}
+\label{prop:reciprocal256_correct}
+Algorithm~\ref{alg:reciprocal256} is correct.
+\end{proposition}
+\begin{proof}
+We will prove that
+\begin{alignat}{2}
+  e_{0}
+\;={}&\;
+  2^{125} - x_{0} d_{0}
+\;&&{}\in\;
+  [0, 2^{63})
+\tx{,}
+\\
+  e_{1}
+\;={}&\;
+  2^{247} - x_{1} d_{1}
+\;&&{}\in\;
+  [0, 2^{128})
+\tx{,}
+\\
+  e_{2}
+\;={}&\;
+  2^{509} - x_{2} d_{2}
+\;&&{}\in\;
+  [0, 2^{274})
+\tx{,}
+\\
+  e_{3}
+\;={}&\;
+  2^{512} - (x_{3} + 2^{256} + 1) d
+\;&&{}\in\;
+  [0, 2 d)
+\tx{,}
+\end{alignat}
+and thus~$x_{3} \in \{v - 1, v\}$, so Proposition~\ref{prop:final_step} gives us that the returned value is indeed~$v$.
+
+The bound for~$e_{0}$ is analogous to the proof of Proposition~\ref{prop:reciprocal128_correct}.  For~$e_{1}$, the same computation gives
+\begin{align*}
+  e_{1}
+\;={}&\;
+  \frac{(2^{189} - x_{0} d_{1})^{2}}{2^{131}} + \Bigl( \frac{M_{2}}{2^{131}} + \delta_{0} \Bigr) d_{1}
+\\
+\le{}&\;
+  \frac{(2^{189} - 2^{64} x_{0} (d_{0} - 1))^{2}}{2^{131}} + \Bigl( \frac{M_{2}}{2^{131}} + \delta_{0} \Bigr) d_{1}
+\\
+={}&\;
+  \frac{(e_{0} + x_{0})^{2}}{2^{3}} + \Bigl( \frac{M_{2}}{2^{131}} + \delta_{0} \Bigr) d_{1}
+\\
+<{}&\;
+  2^{125} + (3 \cdot 2^{-3} + 1) 2^{127}
+\\
+<{}&\;
+  2^{128}
+\tx{,}
+\end{align*}
+where we used that~$d_{1} \ge 2^{64} (d_{0} - 1)$, $e_{0} + x_{0} < 2^{64}$ and~$d_{1} \le 2^{127}$; in particular~$e_{1} + x_{1} < 2^{128}$, since~$x_{1} \le 2^{247} / d_{1} < 2^{121}$.
+
+For~$e_{2}$, we have
+\begin{align*}
+  e_{2}
+\;={}&\;
+  2^{509} - \Bigl( 2^{134} x_{1} + \Bigl\lfloor \frac{\mulhi_{4}(x_{1}, 2^{375} - x_{1} d_{2})}{2^{241}} \Bigr\rfloor \Bigr) d_{2}
+\\
+={}&\;
+  2^{509} - \Bigl( 2^{134} x_{1} + \frac{x_{1} (2^{375} - x_{1} d_{2})}{2^{241}} \Bigr) d_{2} + \Bigl( \frac{M_{4}}{2^{241}} + \delta_{1} \Bigr) d_{2}
+\\
+={}&\;
+  2^{509} - 2 \cdot 2^{134} x_{1} d_{2} + \frac{x_{1}^{2} d_{2}^{2}}{2^{241}} + \Bigl( \frac{M_{4}}{2^{241}} + \delta_{1} \Bigr) d_{2}
+\\
+={}&\;
+  2^{-241} (2^{750} - 2 \cdot 2^{375} x_{1} d_{2} + x_{1}^{2} d_{2}^{2}) + \Bigl( \frac{M_{4}}{2^{241}} + \delta_{1} \Bigr) d_{2}
+\\
+={}&\;
+  \frac{(2^{375} - x_{1} d_{2})^{2}}{2^{241}} + \Bigl( \frac{M_{4}}{2^{241}} + \delta_{1} \Bigr) d_{2}
+\\
+\le{}&\;
+  \frac{(2^{375} - 2^{128} x_{1} d_{1} + 2^{128} x_{1})^{2}}{2^{241}} + \Bigl( \frac{M_{4}}{2^{241}} + \delta_{1} \Bigr) d_{2}
+\\
+={}&\;
+  2^{15} (e_{1} + x_{1})^{2} + \Bigl( \frac{M_{4}}{2^{241}} + \delta_{1} \Bigr) d_{2}
+\\
+<{}&\;
+  2^{15} (2^{128})^{2} + (7 \cdot 2^{15} + 1) 2^{255}
+\\
+<{}&\;
+  2^{274}
+\tx{,}
+\end{align*}
+where we have used that~$d_{2} \ge 2^{128} (d_{1} - 1)$, $e_{1} + x_{1} < 2^{128}$ and~$d_{2} \le 2^{255}$.
+
+Finally, for~$e_{3}$ we have
+\begin{align*}
+  e_{3}
+\;={}&\;
+  2^{512} - \Bigl( 2^{2} x_{2} + \frac{x_{2} (2^{510} - x_{2} d)}{2^{508}} - \frac{M_{7}}{2^{508}} - \delta_{2} \Bigr) d
+\\
+={}&\;
+  \frac{(2^{510} - x_{2} d)^{2}}{2^{508}} + \Bigl( \frac{M_{7}}{2^{508}} + \delta_{2} \Bigr) d
+\\
+<{}&\;
+  \frac{(2 e_{2} + x_{2})^{2}}{2^{508}} + \Bigl( \frac{13 \cdot 2^{448}}{2^{508}} + 1 \Bigr) d
+\\
+<{}&\;
+  2 d
+\tx{,}
+\end{align*}
+where we used that~$d \ge 2 d_{2} - 1$ and~$x_{2} \le 2^{509} / d_{2} \le 2^{255}$.
+\end{proof}
+
+\begin{corollary}
+\label{corr:variable256_bounds}
+In Algorithm~\ref{alg:reciprocal256}, we have the following bounds:
+\begin{gather*}
+  2^{62}
+\;\le\;
+  x_{0}
+\;<\;
+  2^{63}
+\tx{,}\qquad
+  0
+\;\le\;
+  x_{1}
+\;<\;
+  2^{121}
+\tx{,}
+\\
+  0
+\;\le\;
+  x_{2}
+\;\le\;
+  2^{255}
+\tx{,}\qquad
+  0
+\;\le\;
+  x_{3}
+\;<\;
+  2^{256}
+\tx{,}
+\\
+  0
+\;\le\;
+  2^{189} - x_{0} d_{1}
+\;<\;
+  2^{128}
+\tx{,}
+\\
+  0
+\;\le\;
+  2^{375} - x_{1} d_{2}
+\;<\;
+  2^{256}
+\tx{,}
+\\
+  0
+\;\le\;
+  2^{510} - x_{2} d
+\;<\;
+  2^{276}
+\tx{.}
+\end{gather*}
+\end{corollary}
+\begin{proof}
+The bound for~$x_{0}$ is trivial, and the bounds~$x_{1} < 2^{121}$ and~$x_{2} \le 2^{255}$ follow from the bounds of~$e_{1} = 2^{247} - x_{1} d_{1}$ and~$e_{2} = 2^{509} - x_{2} d_{2}$ together with~$d_{1} > 2^{126}$ and~$d_{2} \ge 2^{254}$.
+
+For~$x_{3}$ we use that~$e_{3} = 2^{512} - (x_{3} + 2^{256} + 1) d \in [0, 2 d)$ to obtain that
+\begin{gather*}
+  2^{512} / d - 2^{256} - 3
+\;<\;
+  x_{3}
+\;\le\;
+  2^{512} / d - 2^{256} - 1
+\;\le\;
+  2^{256} - 1
+\tx{.}
+\end{gather*}
+The lower bound remain non-negative for all~$d \le 2^{256} - 3$.  For the two values where~$d > 2^{256} - 3$, we evaluate~$x_{3}$ and indeed see that it is non-negative.
+
+For the three remaining bounds, note that~$2^{64} (d_{0} - 1) \le d_{1} \le 2^{64} d_{0}$, $2^{128} (d_{1} - 1) \le d_{2} \le 2^{128} d_{1}$ and~$2 d_{2} - 1 \le d \le 2 d_{2}$, thus
+\begin{gather*}
+  0
+\;\le\;
+  2^{64} e_{0}
+\;\le\;
+  2^{189} - x_{0} d_{1}
+\;\le\;
+  2^{64} (e_{0} + x_{0})
+\;<\;
+  2^{128}
+\tx{,}
+\\
+  0
+\;\le\;
+  2^{128} e_{1}
+\;\le\;
+  2^{375} - x_{1} d_{2}
+\;\le\;
+  2^{128} (e_{1} + x_{1})
+\;<\;
+  2^{256}
+\tx{,}\makebox[0pt][l]{\quad\tx{and}}
+\\
+  0
+\;\le\;
+  2 e_{2}
+\;\le\;
+  2^{510} - x_{2} d
+\;\le\;
+  2 e_{2} + x_{2}
+\;<\;
+  2^{276}
+\tx{,}
+\end{gather*}
+which completes the proof.
+\end{proof}
+
+%%fakesection[Bibliography]
+% \printbibliography
+\end{document}
+%% vim: spell spelllang=en_us
